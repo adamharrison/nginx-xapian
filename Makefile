@@ -5,19 +5,24 @@ TDIR=t
 LDIR=logs
 CXX=g++
 CC=gcc
-CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -O2 -fPIC
+CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -g -fPIC
 CXXFLAGS=$(CFLAGS) -std=c++17
-LDFLAGS := $(LDFLAGS) -flto -s -static-libstdc++ -static-libgcc
+LDFLAGS := $(LDFLAGS) -lxapian
 AR=ar
-SOURCES=$(wildcard $(SDIR)/*.cpp) $(wildcard $(SDIR)/*.c)
+SOURCES=$(wildcard $(SDIR)/*.cpp) $(wildcard $(SDIR)/*.c) $(wildcard $(TDIR)/*.cpp)
 LIBRARYSOURCES=$(wildcard $(SDIR)/*.cpp)
+TESTSOURCES=$(wildcard $(TDIR)/*.cpp)
 OBJECTS=$(patsubst %.cpp,%.o,$(patsubst %.c,%.o,$(patsubst $(SDIR)/%,$(ODIR)/%,$(SOURCES))))
 LIBRARYOBJECTS=$(patsubst %.cpp,%.o,$(patsubst %.c,%.o,$(patsubst $(SDIR)/%,$(ODIR)/%,$(LIBRARYSOURCES))))
+TESTOBJECTS=$(patsubst %.cpp,%.o,$(patsubst %.c,%.o,$(patsubst $(SDIR)/%,$(ODIR)/%,$(TESTSOURCES))))
 
+TEST = $(BDIR)/test
 LIBRARY=$(BDIR)/libnginx_xapian.a
-
 NGINX_LIBRARY=$(BDIR)/ngx_xapian_search_module.so
 
+
+test: $(LIBRARYOBJECTS) $(TESTOBJECTS)
+	$(CXX) $(LIBRARYOBJECTS) $(TESTOBJECTS) -o $(TEST) $(LDFLAGS) -lgtest -lpthread
 
 all: $(LIBRARY)
 
@@ -27,13 +32,16 @@ $(LIBRARY): directories $(LIBRARYOBJECTS)
 $(ODIR)/%.o: $(SDIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+$(ODIR)/%.o: $(TDIR)/%.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
 $(ODIR)/%.o: $(SDIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 
 library: $(LIBRARY)
 
-directories: $(ODIR) $(BDIR) $(LDIR)
+directories: $(ODIR) $(BDIR) $(LDIR) $(TDIR)
 
 $(LDIR):
 	mkdir -p $(LDIR)
@@ -43,4 +51,6 @@ $(BDIR):
 	mkdir -p $(BDIR)
 
 clean: directories
-	rm -f $(ODIR)/*.o $(LIBRARY)
+	rm -f $(ODIR)/*.o $(LIBRARY) $(TEST)
+
+cleantest: clean

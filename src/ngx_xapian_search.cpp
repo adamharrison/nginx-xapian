@@ -5,23 +5,38 @@
 #include <regex>
 #include <algorithm>
 #include <exception>
+#include <cstdarg>
 
 #include "ngx_xapian_search.h"
 
 using namespace std;
 using namespace Xapian;
 
+bool has_error = false;
+char error_buffer[1024];
+
+const char* ngx_xapian_get_error() {
+    if (!has_error)
+        return nullptr;
+    has_error = false;
+    return error_buffer;
+}
+
+void ngx_clear_error() {
+    has_error = false;
+}
 
 string extract_meta_attribute(const string& document, const string& attribute) {
-    string regexBuffer = string("<meta\\s+.*name=[\"']") + attribute + "\"\\s+value\\s*=\\s*";
-    static auto metaRegex = regex(regexBuffer.data());
+    string regexBuffer = string("<meta\\s+.*name=[\"']") + attribute + "[\"']\\s+content\\s*=\\s*";
+    auto metaRegex = regex(regexBuffer.data());
     smatch match;
     if (regex_search(document, match, metaRegex)) {
-        char delimiter = document[match.position() + match.length(0)];
+        unsigned int initial = match.position(0) + match.length(0);
+        char delimiter = document[initial];
         if (delimiter == '"' || delimiter == '\'') {
-            for (unsigned int i = match.position(); i < document.size(); ++i) {
+            for (unsigned int i = initial+1; i < document.size(); ++i) {
                     if (document[i] == delimiter && (i == 0 || document[i-1] != '\\')) {
-                        return string(&document[match.position()], min((int)(i - match.position()), 1024));
+                        return string(&document[initial+1], min((int)(i - initial - 1), 1024));
                     }
             }
         }
@@ -31,15 +46,16 @@ string extract_meta_attribute(const string& document, const string& attribute) {
 
 
 string extract_link_attribute(const string& document, const string& attribute) {
-    string regexBuffer = string("<link\\s+.*rel=[\"']") + attribute + "\"\\s+href\\s*=\\s*";
-    static auto metaRegex = regex(regexBuffer.data());
+    string regexBuffer = string("<link\\s+.*rel=[\"']") + attribute + "['\"]\\s+href\\s*=\\s*";
+    auto metaRegex = regex(regexBuffer.data());
     smatch match;
     if (regex_search(document, match, metaRegex)) {
-        char delimiter = document[match.position() + match.length(0)];
+        unsigned int initial = match.position(0) + match.length(0);
+        char delimiter = document[initial];
         if (delimiter == '"' || delimiter == '\'') {
-            for (unsigned int i = match.position(); i < document.size(); ++i) {
+            for (unsigned int i = initial+1; i < document.size(); ++i) {
                     if (document[i] == delimiter && (i == 0 || document[i-1] != '\\')) {
-                        return string(&document[match.position()], min((int)(i - match.position()), 1024));
+                        return string(&document[initial], min((int)(i - initial), 1024));
                     }
             }
         }
@@ -47,13 +63,29 @@ string extract_link_attribute(const string& document, const string& attribute) {
     return string();
 }
 
+struct CoreException : public exception {
+    string internal;
+
+    CoreException(const char* format, ...) {
+        char buffer[512];
+        va_list args;
+        va_start(args, format);
+        vsnprintf(buffer, sizeof(buffer), format, args);
+        va_end(args);
+        internal = buffer;
+    }
+
+    const char* what() const throw() { return internal.c_str(); }
+};
+
+
 bool xapian_index_file(WritableDatabase& database, TermGenerator& termGenerator, const string& path) {
     Document document;
     termGenerator.set_document(document);
 
     FILE* file = fopen(path.data(), "rb");
     if (!file)
-        throw "Can't open file.";
+        throw CoreException("Can't open file %s.", path.data());
     fseek(file, 0, SEEK_END);
     size_t size = ftell(file);
     fseek(file, 0, SEEK_SET);
@@ -75,7 +107,8 @@ bool xapian_index_file(WritableDatabase& database, TermGenerator& termGenerator,
     if (regex_search(buffer, match, titleRegex)) {
         for (unsigned int i = match.position(); i < buffer.size(); ++i) {
             if (strncmp(&buffer[i], "</title>", sizeof("</title>")-1) == 0) {
-                title = string(&buffer[match.position()], min((int)(i - match.position()), 1024));
+                unsigned int initial = match.position(0) + match.length(0);
+                title = string(&buffer[initial], min((int)(i - initial), 1024));
                 break;
             }
         }
@@ -101,7 +134,7 @@ bool xapian_index_file(WritableDatabase& database, TermGenerator& termGenerator,
         char* target = dst;
         int name_length = strlen(name);
         *(target++) = '"';
-        target = (char*)memcpy(target, name, name_length + name_length);
+        target = (char*)memcpy(target, name, name_length) + name_length;
         *(target++) = '"';
         *(target++) = ':';
         *(target++) = '"';
@@ -146,26 +179,40 @@ void xapian_traverse_index_directories(WritableDatabase& database, TermGenerator
         char path[PATH_MAX];
         switch (dp->d_type) {
             case DT_DIR: {
-                if (strcmp(directory, ".") != 0 && strcmp(directory, "..") != 0) {
+                if (strcmp(dp->d_name, ".") != 0 && strcmp(dp->d_name, "..") != 0) {
                     strcpy(path, directory);
+                    strcat(path, "/");
                     strcat(path, dp->d_name);
                     xapian_traverse_index_directories(database, termGenerator, path);
                 }
             } break;
             case DT_REG:
-                strcpy(path, directory);
-                strcat(path, dp->d_name);
-                xapian_index_file(database, termGenerator, path);
+                if (strncmp(&dp->d_name[strlen(dp->d_name)-5], ".html", 5) == 0) {
+                    strcpy(path, directory);
+                    strcat(path, "/");
+                    strcat(path, dp->d_name);
+                    xapian_index_file(database, termGenerator, path);
+                }
             break;
         }
     }
 }
 
 int ngx_xapian_build_search_index(const char* directory, const char* language, const char* target) {
-    WritableDatabase database(target, DB_CREATE_OR_OPEN);
-    TermGenerator termGenerator;
-    termGenerator.set_stemmer(Stem(language));
-    xapian_traverse_index_directories(database, termGenerator, directory);
+    try {
+        WritableDatabase database(target, DB_CREATE_OR_OPEN);
+        TermGenerator termGenerator;
+        termGenerator.set_stemmer(Stem(language));
+        xapian_traverse_index_directories(database, termGenerator, directory);
+    } catch (CoreException& e) {
+        has_error = true;
+        strncpy(error_buffer, e.what(), sizeof(error_buffer));
+        return -1;
+    } catch (...) {
+        has_error = true;
+        strcpy(error_buffer, "Unknown error.");
+        return -1;
+    }
     return 0;
 }
 
@@ -196,10 +243,11 @@ int ngx_xapian_search_search_index_json(const char* index, const char* language,
     ngx_xapian_search_search_index(index, language, query, max_results, +[](const char* chunk, unsigned int chunkSize, void* data){
         auto values = (tuple<void*, void*, int, bool>*)data;
         xapian_chunk_callbackp chunkCallback = (xapian_chunk_callbackp)get<0>(*values);
-        if (get<3>(*values)) {
+        if (!get<3>(*values)) {
             chunkCallback(",", 1, get<1>(*values));
-            get<3>(*values) = false;
             get<2>(*values) += 1;
+        } else {
+            get<3>(*values) = false;
         }
         chunkCallback(chunk, chunkSize, get<1>(*values));
         get<2>(*values) += chunkSize;
