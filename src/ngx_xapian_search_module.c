@@ -5,7 +5,7 @@
 typedef struct {
     ngx_string_t directory;
     ngx_string_t index;
-    ngx_int_t max_results;
+    ngx_string_t tmpl;
 } ngx_xapian_search_conf_t;
 
 
@@ -15,26 +15,33 @@ static ngx_int_t ngx_xapian_search_handler(ngx_http_request_t *r);
 
 
 static ngx_command_t  ngx_xapian_search_commands[] = {
-    { 
+    {
         ngx_string("xapian_search"),
         NGX_CONF_TAKE1|NGX_HTTP_LOC_CONF,
         ngx_conf_set_str_slot,
         NGX_HTTP_LOC_CONF_OFFSET,
         offsetof(ngx_xapian_search_conf_t, directory),
         NULL
-    }, { 
-        ngx_string("xapian_search_max_results"),
+    }, {
+        ngx_string("xapian_index"),
         NGX_CONF_TAKE1|NGX_HTTP_LOC_CONF,
-        ngx_conf_set_num_slot,
+        ngx_conf_set_str_slot,
         NGX_HTTP_LOC_CONF_OFFSET,
-        offsetof(ngx_xapian_search_conf_t, directory),
+        offsetof(ngx_xapian_search_conf_t, index),
         NULL
-    }
+    }, {
+        ngx_string("xapian_template"),
+        NGX_CONF_TAKE2|NGX_HTTP_LOC_CONF,
+        ngx_conf_set_str_slot,
+        NGX_HTTP_LOC_CONF_OFFSET,
+        offsetof(ngx_xapian_search_conf_t, tmpl),
+        NULL
+    },
     ngx_null_command
 };
 
 
-static ngx_http_module_t ngx_xapian_search_module_ctx = { 
+static ngx_http_module_t ngx_xapian_search_module_ctx = {
     NULL, /* preconfiguration */
     NULL, /* postconfiguration */
 
@@ -65,7 +72,7 @@ ngx_module_t  ngx_xapian_search_module = {
 };
 
 
-struct 
+struct
 
 static void ngx_xapian_chunk_handler(const char* chunk, unsigned int chunk_size, void* data) {
     memcpy(data, chunk, chunk_size);
@@ -77,9 +84,9 @@ static ngx_int_t ngx_xapian_search_handler(ngx_http_request_t *r) {
         ngx_chain_t     *in, out;
         ngx_buf_t       *buffer;
 	ngx_xapian_search_conf_t *config;
-	
+
 	config = ngx_http_get_module_loc_conf(r, ngx_xapian_search_module);
-	
+
         /* only accept gets */
 	if (!(r->method & NGX_HTTP_GET))
             return NGX_HTTP_NOT_ALLOWED;
@@ -103,25 +110,25 @@ static ngx_int_t ngx_xapian_search_handler(ngx_http_request_t *r) {
             	break;
             }
         }
-        
+
         /* 100k should be enough for anyone. (for now) */
         buffer = ngx_create_temp_buf(r->pool, 100*1024);
         if (buffer == NULL) {
             ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
             return;
         }
-        int total_length = ngx_xapian_search_search_index_json(config->directory.data, "en", query, config->max_results, ngx_xapian_chunk_handler, buffer->pos);
+        int total_length = ngx_xapian_search_search_index_json(config->directory.data, "en", query, 12, ngx_xapian_chunk_handler, buffer->pos);
         buffer->last = buffer->pos + total_length;
         buffer->last_buf = 1;
         r->headers_out.content_length = total_length;
-        
+
         /* Send off headers. */
         rc = ngx_http_send_header(r);
         if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
             ngx_http_finalize_request(r, rc);
             return;
         }
-        
+
         /* Send off buffer. */
         out.buf = buffer;
         out.next = NULL;
@@ -144,6 +151,8 @@ static void* ngx_xapian_search_create_loc_conf(ngx_conf_t *cf) {
 	conf->directory.data = NULL;
 	conf->index.len = 0;
 	conf->index.data = NULL;
+	conf->tmpl.len = 0;
+	conf->tmpl.data = NULL;
 	conf->max_results = NGX_CONF_UNSET;
 	return conf;
 }
@@ -153,6 +162,5 @@ static char* ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, void
 	ngx_xapian_search_conf_t *conf = child;
 	ngx_conf_merge_str_value(conf->directory, prev->directory, "");
 	ngx_conf_merge_str_value(conf->index, prev->index, "");
-	ngx_conf_merge_value(conf->max_results, prev->max_results, 10);
 	return NGX_CONF_OK;
 }

@@ -3,10 +3,11 @@
 	<FileVersion major="1" minor="6" />
 	<Project>
 		<Option title="nginx-xapian" />
+		<Option makefile_is_custom="1" />
 		<Option pch_mode="2" />
 		<Option compiler="gcc" />
 		<Build>
-			<Target title="Debug">
+			<Target title="library">
 				<Option output="bin/nginx-xapian" prefix_auto="1" extension_auto="1" />
 				<Option working_dir="" />
 				<Option object_output="obj/" />
@@ -27,8 +28,11 @@
 			<Add option="-Wall" />
 			<Add option="-fexceptions" />
 		</Compiler>
-		<Unit filename="src/search.cpp" />
-		<Unit filename="src/search.h" />
+		<Unit filename="src/ngx_xapian_search.cpp" />
+		<Unit filename="src/ngx_xapian_search.h" />
+		<Unit filename="src/ngx_xapian_search_module.c">
+			<Option compilerVar="CC" />
+		</Unit>
 		<Extensions>
 			<code_completion />
 			<debugger />
