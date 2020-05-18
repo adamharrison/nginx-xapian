@@ -5,12 +5,12 @@ TDIR=t
 LDIR=logs
 CXX=g++
 CC=gcc
-CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -g -fPIC
+CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -O3 -fPIC -s
 CXXFLAGS=$(CFLAGS) -std=c++17
-LDFLAGS := $(LDFLAGS) -lxapian
+LDFLAGS := $(LDFLAGS) -lxapian -s
 AR=ar
 SOURCES=$(wildcard $(SDIR)/*.cpp) $(wildcard $(SDIR)/*.c) $(wildcard $(TDIR)/*.cpp)
-LIBRARYSOURCES=$(wildcard $(SDIR)/*.cpp)
+LIBRARYSOURCES=$(SDIR)/ngx_xapian_search.cpp
 TESTSOURCES=$(wildcard $(TDIR)/*.cpp)
 OBJECTS=$(patsubst %.cpp,%.o,$(patsubst %.c,%.o,$(patsubst $(SDIR)/%,$(ODIR)/%,$(SOURCES))))
 LIBRARYOBJECTS=$(patsubst %.cpp,%.o,$(patsubst %.c,%.o,$(patsubst $(SDIR)/%,$(ODIR)/%,$(LIBRARYSOURCES))))
@@ -28,6 +28,9 @@ all: $(LIBRARY)
 
 $(LIBRARY): directories $(LIBRARYOBJECTS)
 	$(AR) -r -s $(LIBRARY) $(LIBRARYOBJECTS)
+
+$(NGINX_LIBRARY): $(LIBRARYOBJECTS)
+	$(CC) $(LIBRARYOBJECTS) -shared
 
 $(ODIR)/%.o: $(SDIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@

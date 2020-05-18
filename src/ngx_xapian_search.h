@@ -1,5 +1,5 @@
-#ifndef SEARCH_H
-#define SEARCH_H
+#ifndef NGX_XAPIAN_SEARCH_H
+#define NGX_XAPIAN_SEARCH_H
 
 #ifdef __cplusplus
 extern "C" {
