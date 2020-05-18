@@ -1,0 +1,14 @@
+# depslib dependency file v1.0
+1589648259 source:/home/adam/nginx-xapian/main.cpp
+	<iostream>
+	<xapian.h>
+
+1589743913 source:/home/adam/nginx-xapian/src/search.cpp
+	<iostream>
+	<xapian.h>
+	<dirent.h>
+	<cstring>
+	"search.h"
+
+1589743920 /home/adam/nginx-xapian/src/search.h
+

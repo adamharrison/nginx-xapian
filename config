@@ -1,0 +1,8 @@
+ngx_module_type=CORE
+ngx_module_name=ngx_xapian_search_module
+ngx_module_srcs="$ngx_addon_dir/ngx_xapian_search_module.c"
+ngx_module_libs=-lnginx-xapian
+
+. auto/module
+
+ngx_addon_name=$ngx_module_name
