@@ -5,9 +5,10 @@ TDIR=t
 LDIR=logs
 CXX=g++
 CC=gcc
-CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -O3 -fPIC -s
+# CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -fPIC -O3 -s
+CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -fPIC -g
 CXXFLAGS=$(CFLAGS) -std=c++17
-LDFLAGS := $(LDFLAGS) -lxapian -s
+LDFLAGS := $(LDFLAGS) -lxapian
 AR=ar
 SOURCES=$(wildcard $(SDIR)/*.cpp) $(wildcard $(SDIR)/*.c) $(wildcard $(TDIR)/*.cpp)
 LIBRARYSOURCES=$(SDIR)/ngx_xapian_search.cpp

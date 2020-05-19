@@ -26,6 +26,77 @@ void ngx_clear_error() {
     has_error = false;
 }
 
+const char* ngx_xapian_result_get_title(ngx_xapian_result_t* result, size_t* len) {
+    int* lengths = (int*)result->pointer;
+    int offset = sizeof(int)*4;
+    *len = lengths[0];
+    return &result->pointer[offset];
+}
+const char* ngx_xapian_result_get_description(ngx_xapian_result_t* result, size_t* len) {
+    int* lengths = (int*)result->pointer;
+    int offset = sizeof(int)*4 + lengths[0];
+    *len = lengths[1];
+    return &result->pointer[offset];
+}
+const char* ngx_xapian_result_get_path(ngx_xapian_result_t* result, size_t* len) {
+    int* lengths = (int*)result->pointer;
+    int offset = sizeof(int)*4 + lengths[0] + lengths[1];
+    *len = lengths[2];
+    return &result->pointer[offset];
+}
+const char* ngx_xapian_result_get_url(ngx_xapian_result_t* result, size_t* len) {
+    int* lengths = (int*)result->pointer;
+    int offset = sizeof(int)*4 + lengths[0] + lengths[1] + lengths[2];
+    *len = lengths[3];
+    return &result->pointer[offset];
+}
+
+
+struct SearchResult {
+    string path;
+    string title;
+    string description;
+    string url;
+
+    string pack() const {
+        string buffer;
+        buffer.reserve(sizeof(int)*4 + path.size() + title.size() + description.size() + url.size());
+        int size = path.size();
+        buffer.append((char*)&size, sizeof(size));
+        size = title.size();
+        buffer.append((char*)&size, sizeof(size));
+        size = description.size();
+        buffer.append((char*)&size, sizeof(size));
+        size = url.size();
+        buffer.append((char*)&size, sizeof(size));
+        buffer.append(path);
+        buffer.append(title);
+        buffer.append(description);
+        buffer.append(url);
+        return buffer;
+    }
+    static SearchResult unpack(const string& data) {
+        int offset = 0;
+        SearchResult result;
+        int pathSize = *(int*)&data.data()[offset];
+        offset += sizeof(int);
+        int titleSize = *(int*)&data.data()[offset];
+        offset += sizeof(int);
+        int descriptionSize = *(int*)&data.data()[offset];
+        offset += sizeof(int);
+        int urlSize = *(int*)&data.data()[offset];
+        offset += sizeof(int);
+        result.path = data.substr(offset, pathSize);
+        offset += pathSize;
+        result.title = data.substr(offset, titleSize);
+        offset += titleSize;
+        result.description = data.substr(offset, descriptionSize);
+        offset += descriptionSize;
+        result.url = data.substr(offset, urlSize);
+        return result;
+    }
+};
+
 string extract_meta_attribute(const string& document, const string& attribute) {
     string regexBuffer = string("<meta\\s+.*name=[\"']") + attribute + "[\"']\\s+content\\s*=\\s*";
     auto metaRegex = regex(regexBuffer.data());
@@ -55,7 +126,7 @@ string extract_link_attribute(const string& document, const string& attribute) {
         if (delimiter == '"' || delimiter == '\'') {
             for (unsigned int i = initial+1; i < document.size(); ++i) {
                     if (document[i] == delimiter && (i == 0 || document[i-1] != '\\')) {
-                        return string(&document[initial], min((int)(i - initial), 1024));
+                        return string(&document[initial+1], min((int)(i - initial - 1), 1024));
                     }
             }
         }
@@ -96,75 +167,39 @@ bool xapian_index_file(WritableDatabase& database, TermGenerator& termGenerator,
     }
 
     // Rather than using libXML2, just pump these into a regex, and print out the JSON. If it gets more complicated, start using libraries, but for now, this should do.
-    string title;
-    string description = extract_meta_attribute(buffer, "description");
+    SearchResult result;
+    result.path = path;
+    result.description = extract_meta_attribute(buffer, "description");
     string keywords = extract_meta_attribute(buffer, "keywords");
     string robots = extract_meta_attribute(buffer, "robot");
     string language = extract_meta_attribute(buffer, "language");
-    string url = extract_link_attribute(buffer, "canonical");
+    result.url = extract_link_attribute(buffer, "canonical");
     static auto titleRegex = regex("<\\s*title\\s*>");
     smatch match;
     if (regex_search(buffer, match, titleRegex)) {
         for (unsigned int i = match.position(); i < buffer.size(); ++i) {
             if (strncmp(&buffer[i], "</title>", sizeof("</title>")-1) == 0) {
                 unsigned int initial = match.position(0) + match.length(0);
-                title = string(&buffer[initial], min((int)(i - initial), 1024));
+                result.title = string(&buffer[initial], min((int)(i - initial), 1024));
                 break;
             }
         }
     }
 
-    if (title.empty() || description.empty() || robots.find("nointernalindex") != string::npos)
+    if (result.title.empty() || result.description.empty() || robots.find("nointernalindex") != string::npos)
         return false;
 
-    // Rather than including rapidJSON, just pump these strings in. If it proves problematic, we'll include the library.
-    char outputBuffer[1024*4] = "{";
-    unsigned int offset = 1;
 
-    auto copyToJson = [](char* dst, const char* str, int len) {
-        char* target = dst;
-        for (int i = 0; i < len; ++i) {
-            if (str[i] == '"' && (i == 0 || str[i-1] != '\\'))
-                *(target++) = '\\';
-            *(target++) = str[i];
-        }
-        return target - dst;
-    };
-    auto copyToJsonField = [&](char* dst, const char* name, const string& str) {
-        char* target = dst;
-        int name_length = strlen(name);
-        *(target++) = '"';
-        target = (char*)memcpy(target, name, name_length) + name_length;
-        *(target++) = '"';
-        *(target++) = ':';
-        *(target++) = '"';
-        target += copyToJson(target, str.data(), str.size());
-        *(target++) = '"';
-        return target - dst;
-    };
-
-    offset += copyToJsonField(&outputBuffer[offset], "path", path);
-    outputBuffer[offset++] = ',';
-    offset += copyToJsonField(&outputBuffer[offset], "title", title);
-    outputBuffer[offset++] = ',';
-    offset += copyToJsonField(&outputBuffer[offset], "description", description);
-    if (!url.empty()) {
-        outputBuffer[offset++] = ',';
-        offset += copyToJsonField(&outputBuffer[offset], "url", url);
-    }
-    outputBuffer[offset++] = '}';
-    outputBuffer[offset] = 0;
-
-    termGenerator.index_text(title.data(), 10);
+    termGenerator.index_text(result.title.data(), 10);
     termGenerator.increase_termpos();
     termGenerator.index_text(keywords.data(), 3);
     termGenerator.increase_termpos();
-    termGenerator.index_text(description.data(), 3);
+    termGenerator.index_text(result.description.data(), 3);
     termGenerator.increase_termpos();
     termGenerator.index_text(buffer.data());
     termGenerator.increase_termpos();
 
-    document.set_data(outputBuffer);
+    document.set_data(result.pack());
     document.add_boolean_term(path);
     database.replace_document(path, document);
     return true;
@@ -216,7 +251,7 @@ int ngx_xapian_build_search_index(const char* directory, const char* language, c
     return 0;
 }
 
-int ngx_xapian_search_search_index(const char* index, const char* language, const char* query, int max_results, xapian_chunk_callbackp chunkCallback, void* data) {
+int ngx_xapian_search_search_index(const char* index, const char* language, const char* query, int max_results, ngx_xapian_result_callbackp resultCallback, void* data) {
     Database database(index);
     QueryParser queryParser;
     queryParser.set_stemmer(Stem(language));
@@ -230,27 +265,73 @@ int ngx_xapian_search_search_index(const char* index, const char* language, cons
     int total = 0;
     for (MSet::iterator it = docset.begin(); it != docset.end(); ++it) {
         auto str = it.get_document().get_data();
-        chunkCallback(str.data(), str.size(), data);
+        resultCallback({ str.data(), str.size() }, data);
     }
     return total;
 }
 
+int copyToJson(char* dst, const char* str, int len) {
+    char* target = dst;
+    for (int i = 0; i < len; ++i) {
+        if (str[i] == '"' && (i == 0 || str[i-1] != '\\'))
+            *(target++) = '\\';
+        *(target++) = str[i];
+    }
+    return target - dst;
+}
+int copyToJsonField(char* dst, const char* name, const char* str, int len) {
+    char* target = dst;
+    int name_length = strlen(name);
+    *(target++) = '"';
+    target = (char*)memcpy(target, name, name_length) + name_length;
+    *(target++) = '"';
+    *(target++) = ':';
+    *(target++) = '"';
+    target += copyToJson(target, str, len);
+    *(target++) = '"';
+    return target - dst;
+};
+
+
 // Should be free'd with 'free' after use.
-int ngx_xapian_search_search_index_json(const char* index, const char* language, const char* query, int max_results, xapian_chunk_callbackp chunkCallback, void* data) {
+int ngx_xapian_search_search_index_json(const char* index, const char* language, const char* query, int max_results, ngx_xapian_chunk_callbackp chunkCallback, void* data) {
     tuple<void*, void*, int, bool> values((void*)chunkCallback, (void*)data, 0, true);
     chunkCallback("{\"results\":[", sizeof("{\"results\":[")-1, data);
     get<2>(values) += sizeof("{\"results\":[")-1;
-    ngx_xapian_search_search_index(index, language, query, max_results, +[](const char* chunk, unsigned int chunkSize, void* data){
+    ngx_xapian_search_search_index(index, language, query, max_results, +[](ngx_xapian_result_t result, void* data){
         auto values = (tuple<void*, void*, int, bool>*)data;
-        xapian_chunk_callbackp chunkCallback = (xapian_chunk_callbackp)get<0>(*values);
+        ngx_xapian_chunk_callbackp chunkCallback = (ngx_xapian_chunk_callbackp)get<0>(*values);
         if (!get<3>(*values)) {
             chunkCallback(",", 1, get<1>(*values));
             get<2>(*values) += 1;
         } else {
             get<3>(*values) = false;
         }
-        chunkCallback(chunk, chunkSize, get<1>(*values));
-        get<2>(*values) += chunkSize;
+
+        // Rather than including rapidJSON, just pump these strings in. If it proves problematic, we'll include the library.
+        char outputBuffer[1024*4] = "{";
+        unsigned int offset = 1;
+
+        size_t len;
+        const char* buf = ngx_xapian_result_get_path(&result, &len);
+        offset += copyToJsonField(&outputBuffer[offset], "path", buf, len);
+        outputBuffer[offset++] = ',';
+        buf = ngx_xapian_result_get_title(&result, &len);
+        offset += copyToJsonField(&outputBuffer[offset], "title", buf, len);
+        outputBuffer[offset++] = ',';
+        buf = ngx_xapian_result_get_description(&result, &len);
+        offset += copyToJsonField(&outputBuffer[offset], "description", buf, len);
+        buf = ngx_xapian_result_get_url(&result, &len);
+        if (len > 0) {
+            outputBuffer[offset++] = ',';
+            offset += copyToJsonField(&outputBuffer[offset], "url", buf, len);
+        }
+        outputBuffer[offset++] = '}';
+        outputBuffer[offset] = 0;
+
+
+        chunkCallback(outputBuffer, offset, get<1>(*values));
+        get<2>(*values) += offset;
     }, &values);
     chunkCallback("]}", 2, data);
     get<2>(values) += 2;

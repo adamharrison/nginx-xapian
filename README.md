@@ -8,7 +8,7 @@ rather than by nginx directives.
 
 ## Quickstart
 
-Using nginx-xapian is really simple. In your nginx config add the following line:
+Using nginx-xapian is really simple. In your nginx config (usualy `/etc/nginx/nginx.conf`) add the following line outside all the blocks, near the top:
 
 	load_module <path_to_xapian_shared_object>;
 
@@ -30,13 +30,13 @@ By default, every HTML file is indexed. This can be modified through the use of 
 
 Heavily weighted score. Is returned in the main result.
 
+### `<meta name="description">`
+
+Middle weight score. Returned in the main result.
+
 ### `<meta name="keywords">`
 
 Heavily weighted score. Not returned in the main result.
-
-### `<meta name="description">`
-
-Middle weight score. Not returned in the main result.
 
 ### `<meta name="robots">`
 
@@ -56,15 +56,15 @@ Will return this URL with search results, otherwise will omit urls entirely.
 
 ## Query Paramters
 
-### q
+### `q`
 
 This contains the actual query searched.
 
-### results
+### `results`
 
 Contains the requested amount of results. Allows up to 100. Default 12.
 
-### page
+### `page`
 
 Contains the requested page.
 
@@ -72,26 +72,41 @@ Contains the requested page.
 
 The following nginx directives are supported at the `location` block level.
 
-### xapian_search
+### `xapian_search`
 
 Takes exactly one argument; the directory to search. If specified, searching is enabled at this location.
 
-### xapian_index
+### `xapian_index`
 
 Takes exactly one argument; the path to store the index in. By default, this will be in the nginx folder root folder.
 
-### xapian_template
+### `xapian_template`
 
-Takes exactly two arguments. The first, is a path to an HTML file. The second is a CSS selector that corresponds to the container to add the search result HTML elements into. Elements are added exactly like so.
+Takes exactly one argument; the path to an HTML file. The following tags are supported as part of a super-simple templating engine. In future, this may
+link against a true template library, but for now, in order to not introduce any dependencies, note that these tags are *simple literals*.
+
+If no template is specified, the only way that the endpoint can be accessed is with an `Accept: application/json` header.
+
+Elements are added exactly as specified below.
+
+#### {{ results }}
+
+The search results.
 
     <ul class='search-results'>
-        <li><a href='/'>
-            <div class='title'>{{ result[0].title }}</div>
-            <div class='description'>{{ result[0].description }}</div>
+        <li><a href='{{ reuslt[0].url | escape }}'>
+            <div class='title'>{{ result[0].title | escape_html }}</div>
+            <div class='description'>{{ result[0].description | escape_html }}</div>
         </a></li>
     </ul>
 
-If no template is specified, the only way that the endpoint can be accessed is with an `Accept: application/json` header.
+#### {{ search }}
+
+The search terms used.
+
+#### {{ search | escape }}
+
+The search terms used, but escaped. Suitable for sticking into an input box value.
 
 
 ## Dependencies
@@ -106,7 +121,7 @@ Initial commit. Not functional yet. Soon, hopefully. Goal is to get everything f
 ## TL;DR
 
 Good SEO practices will also net you a better nginx-xapian experience! Just follow those, and you'll be fine. Not ready for production (or even debug, yet). Could potentially include one of the well-supported C++ templating
-enignes to provide an actual HTML page rather than JSON, but am unsure if I want to eventually do that. May simply take a CSS selector, a reference page, and render a <ul> into the page. Will see.
+enignes to provide an actual HTML page rather than JSON, but am unsure if I want to eventually do that. May simply take a CSS selector, a reference page, and render a `<ul>` into the page. Will see.
 
 ## License
 

@@ -22,6 +22,7 @@ TEST(sanity, search) {
         memcpy(&chunk_structure->pointer[chunk_structure->offset], chunk, chunkSize);
         chunk_structure->offset += chunkSize;
     }, &chunk_structure);
+    buffer[totalLength] = 0;
     ASSERT_STREQ(ngx_xapian_get_error(), nullptr);
 
 }
