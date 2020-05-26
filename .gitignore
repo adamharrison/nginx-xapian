@@ -2,3 +2,4 @@ example
 obj
 bin
 *.layout
+*.o

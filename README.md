@@ -10,15 +10,15 @@ rather than by nginx directives.
 
 Using nginx-xapian is really simple. In your nginx config (usualy `/etc/nginx/nginx.conf`) add the following line outside all the blocks, near the top:
 
-	load_module <path_to_xapian_shared_object>;
+	load_module modules/ngx_xapian_search_module.so;
 
 To add in an endpoint that will search your files, you simply add the following location block, wherever you'd like search capability
 
 	location /search {
-		xapian_search <path_to_directory>;
+		xapian_search (<path_to_directory>);
 	}
 
-And that's it. This will return a JSON list of hits against files in that directory, based on the query parameter `q`. It'll treat the files as a normal search engine would treat them; returning the `<title>`, as well as `<meta name="description">`. Will index any HTML file in the directory specified, though will specifically omit any file that has a meta attribute tag of the following:
+And that's it. This will return a JSON list of hits against files in that directory (or, the root directory, if none was specified), based on the query parameter `q`. It'll treat the files as a normal search engine would treat them; returning the `<title>`, as well as `<meta name="description">`. Will index any HTML file in the directory specified, though will specifically omit any file that has a meta attribute tag of the following:
 
 nginx-xapian will pay attention to the following head tags to influence how and what it searches:
 
@@ -74,7 +74,11 @@ The following nginx directives are supported at the `location` block level.
 
 ### `xapian_search`
 
-Takes exactly one argument; the directory to search. If specified, searching is enabled at this location.
+Takes a single argument, `on`. Allows this endpoint to return saerch results.
+
+### `xapian_directory`
+
+Takes at most argument; the directory to search. If specified, will build an index for the designated lcoation. If unspecified, will search the `root` folder.
 
 ### `xapian_index`
 
@@ -104,7 +108,7 @@ The search results.
 
 The search terms used.
 
-#### {{ search | escape }}
+#### {{ search_escaped }}
 
 The search terms used, but escaped. Suitable for sticking into an input box value.
 

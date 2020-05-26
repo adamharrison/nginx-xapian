@@ -40,6 +40,7 @@
 		<Unit filename="README.md">
 			<Option target="library" />
 		</Unit>
+		<Unit filename="config" />
 		<Unit filename="src/ngx_xapian_search.cpp">
 			<Option target="library" />
 		</Unit>
@@ -47,6 +48,7 @@
 			<Option target="library" />
 		</Unit>
 		<Unit filename="src/ngx_xapian_search_module.cpp" />
+		<Unit filename="src/picohash.h" />
 		<Unit filename="t/ngx_xapian_test.cpp">
 			<Option target="library" />
 		</Unit>

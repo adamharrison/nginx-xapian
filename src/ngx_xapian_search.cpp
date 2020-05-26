@@ -22,23 +22,28 @@ const char* ngx_xapian_get_error() {
     return error_buffer;
 }
 
-void ngx_clear_error() {
+void ngx_xapian_set_error(const char* error) {
+    has_error = true;
+    strncpy(error_buffer, error, sizeof(error_buffer));
+}
+
+void ngx_xapian_clear_error() {
     has_error = false;
 }
 
-const char* ngx_xapian_result_get_title(ngx_xapian_result_t* result, size_t* len) {
+const char* ngx_xapian_result_get_path(ngx_xapian_result_t* result, size_t* len) {
     int* lengths = (int*)result->pointer;
     int offset = sizeof(int)*4;
     *len = lengths[0];
     return &result->pointer[offset];
 }
-const char* ngx_xapian_result_get_description(ngx_xapian_result_t* result, size_t* len) {
+const char* ngx_xapian_result_get_title(ngx_xapian_result_t* result, size_t* len) {
     int* lengths = (int*)result->pointer;
     int offset = sizeof(int)*4 + lengths[0];
     *len = lengths[1];
     return &result->pointer[offset];
 }
-const char* ngx_xapian_result_get_path(ngx_xapian_result_t* result, size_t* len) {
+const char* ngx_xapian_result_get_description(ngx_xapian_result_t* result, size_t* len) {
     int* lengths = (int*)result->pointer;
     int offset = sizeof(int)*4 + lengths[0] + lengths[1];
     *len = lengths[2];
@@ -233,39 +238,53 @@ void xapian_traverse_index_directories(WritableDatabase& database, TermGenerator
     }
 }
 
-int ngx_xapian_build_search_index(const char* directory, const char* language, const char* target) {
+int ngx_xapian_build_index(const char* directory, const char* language, const char* target) {
     try {
         WritableDatabase database(target, DB_CREATE_OR_OPEN);
         TermGenerator termGenerator;
         termGenerator.set_stemmer(Stem(language));
         xapian_traverse_index_directories(database, termGenerator, directory);
-    } catch (CoreException& e) {
-        has_error = true;
-        strncpy(error_buffer, e.what(), sizeof(error_buffer));
+    } catch (Xapian::Error& e) {
+        ngx_xapian_set_error(e.get_msg().data());
+        return -1;
+    } catch (std::exception& e) {
+        ngx_xapian_set_error(e.what());
         return -1;
     } catch (...) {
-        has_error = true;
-        strcpy(error_buffer, "Unknown error.");
+        ngx_xapian_set_error("Unknown error");
         return -1;
     }
     return 0;
 }
 
-int ngx_xapian_search_search_index(const char* index, const char* language, const char* query, int max_results, ngx_xapian_result_callbackp resultCallback, void* data) {
-    Database database(index);
-    QueryParser queryParser;
-    queryParser.set_stemmer(Stem(language));
-    queryParser.set_stemming_strategy(QueryParser::STEM_SOME);
+int ngx_xapian_search_index(const char* index, const char* language, const char* query, int max_results, ngx_xapian_result_callbackp resultCallback, void* data) {
+    int total = -1;
+    try {
+        Database database(index);
+        QueryParser queryParser;
+        queryParser.set_stemmer(Stem(language));
+        queryParser.set_stemming_strategy(QueryParser::STEM_SOME);
 
-    auto parsedQuery = queryParser.parse_query(query);
-    Enquire inquiry(database);
-    inquiry.set_query(parsedQuery);
-    MSet docset = inquiry.get_mset(0, max_results);
+        auto parsedQuery = queryParser.parse_query(query);
+        Enquire inquiry(database);
+        inquiry.set_query(parsedQuery);
+        MSet docset = inquiry.get_mset(0, max_results);
 
-    int total = 0;
-    for (MSet::iterator it = docset.begin(); it != docset.end(); ++it) {
-        auto str = it.get_document().get_data();
-        resultCallback({ str.data(), str.size() }, data);
+        total = 0;
+        for (MSet::iterator it = docset.begin(); it != docset.end(); ++it) {
+            auto str = it.get_document().get_data();
+            resultCallback({ str.data(), str.size() }, data);
+            ++total;
+        }
+    } catch (Xapian::Error& e) {
+        ngx_xapian_set_error(e.get_msg().data());
+        return -1;
+    } catch (std::exception& e) {
+        ngx_xapian_set_error(e.what());
+        return -1;
+    } catch (...) {
+        ngx_xapian_set_error("Unknown error");
+        return -1;
     }
     return total;
 }
@@ -292,13 +311,134 @@ int copyToJsonField(char* dst, const char* name, const char* str, int len) {
     return target - dst;
 };
 
+struct InternalTemplate {
+    struct Node {
+        enum class Type {
+            TEXT,
+            RESULTS,
+            SEARCH,
+            SEARCH_ESCAPED
+        };
+        Type type;
+        std::string contents;
+    };
+
+    std::vector<Node> nodes;
+
+    InternalTemplate(const char* str, size_t len) {
+        if (len > 1) {
+            size_t outerOpenTag = 0;
+            size_t openTag = 0;
+            size_t outerCloseTag = 0;
+            size_t closeTag = 0;
+            for (size_t i = 1; i < len; ++i) {
+                if (!openTag) {
+                    if (str[i] == '{' && str[i-1] == '{') {
+                        outerOpenTag = i-1;
+                        for (openTag = i+1; isspace(str[openTag]); ++openTag);
+                    }
+                } else {
+                    if (str[i] == '}' && str[i-1] == '}') {
+                        if (outerOpenTag > 0)
+                            nodes.push_back(Node({ Node::Type::TEXT, std::string(&str[outerCloseTag], outerOpenTag - outerCloseTag) }));
+                        outerCloseTag = i+1;
+                        for (closeTag = i-2; isspace(str[closeTag]); --closeTag);
+                        size_t length = closeTag - openTag + 1;
+                        switch (length) {
+                            case sizeof("results")-1: {
+                                if (strncmp(&str[openTag], "results", length) == 0)
+                                    nodes.push_back(Node({ Node::Type::RESULTS }));
+                                else
+                                    throw CoreException("Unknown directive.");
+                            } break;
+                            case sizeof("search")-1: {
+                                if (strncmp(&str[openTag], "search", length) == 0)
+                                    nodes.push_back(Node({ Node::Type::SEARCH }));
+                                else
+                                    throw CoreException("Unknown directive.");
+                            } break;
+                            case sizeof("search_escaped")-1: {
+                                if (strncmp(&str[openTag], "search_escaped", length) == 0)
+                                    nodes.push_back(Node({ Node::Type::SEARCH_ESCAPED }));
+                                else
+                                    throw CoreException("Unknown directive.");
+                            } break;
+                        }
+                        openTag = 0;
+                    }
+                }
+            }
+            if (outerCloseTag < len)
+                nodes.push_back(Node({ Node::Type::TEXT, std::string(&str[outerCloseTag], len - outerCloseTag + 1) }));
+        }
+    }
+};
+
+
+int ngx_xapian_search_template(const char* index, const char* language, const char* query, int max_results, struct ngx_xapian_template_s* tmpl, ngx_xapian_chunk_callbackp chunkCallback, void* data) {
+    std::string results;
+    int resultCount = ngx_xapian_search_index(index, language, query, max_results, +[](ngx_xapian_result_t result, void* data){
+        std::string* results = (std::string*)data;
+        size_t titleLength;
+        const char* title = ngx_xapian_result_get_title(&result, &titleLength);
+        size_t descriptionLength;
+        const char* description = ngx_xapian_result_get_description(&result, &descriptionLength);
+        size_t urlLength;
+        const char* url = ngx_xapian_result_get_url(&result, &urlLength);
+        results->append("<li><a href='");
+        results->append(url, urlLength);
+        results->append("'>");
+        results->append("<div class='title'>");
+        results->append(title, titleLength);
+        results->append("</div>");
+        results->append("<div class='description'>");
+        results->append(description, descriptionLength);
+        results->append("</div></a></li>");
+    }, &results);
+    InternalTemplate& itmpl = *((InternalTemplate*)tmpl->internal);
+    for (auto it = itmpl.nodes.begin(); it != itmpl.nodes.end(); ++it) {
+        switch (it->type) {
+            case InternalTemplate::Node::Type::RESULTS: {
+                chunkCallback(results.data(), results.size(), data);
+            } break;
+            case InternalTemplate::Node::Type::SEARCH: {
+                chunkCallback(query, strlen(query), data);
+            } break;
+            case InternalTemplate::Node::Type::SEARCH_ESCAPED: {
+                char buffer[1024];
+                int current = 0;
+                size_t len = strlen(query);
+                for (size_t i = 0; i < len; ++i) {
+                    if (query[i] == '\'')
+                        buffer[current++] = '\\';
+                    buffer[current++] = query[i];
+                }
+                chunkCallback(buffer, current, data);
+            } break;
+            case InternalTemplate::Node::Type::TEXT: {
+                chunkCallback(it->contents.data(), it->contents.size(), data);
+            } break;
+        }
+    }
+    return resultCount;
+}
+
+ngx_xapian_template_t* ngx_xapian_parse_template(const char* contents, size_t length) {
+    return new ngx_xapian_template_t({ new InternalTemplate(contents, length) });
+}
+
+
+void ngx_xapian_free_template(ngx_xapian_template_t* tmpl) {
+    delete (InternalTemplate*)tmpl->internal;
+    delete tmpl;
+}
 
 // Should be free'd with 'free' after use.
-int ngx_xapian_search_search_index_json(const char* index, const char* language, const char* query, int max_results, ngx_xapian_chunk_callbackp chunkCallback, void* data) {
+int ngx_xapian_search_index_json(const char* index, const char* language, const char* query, int max_results, ngx_xapian_chunk_callbackp chunkCallback, void* data) {
     tuple<void*, void*, int, bool> values((void*)chunkCallback, (void*)data, 0, true);
     chunkCallback("{\"results\":[", sizeof("{\"results\":[")-1, data);
     get<2>(values) += sizeof("{\"results\":[")-1;
-    ngx_xapian_search_search_index(index, language, query, max_results, +[](ngx_xapian_result_t result, void* data){
+    int total = ngx_xapian_search_index(index, language, query, max_results, +[](ngx_xapian_result_t result, void* data){
         auto values = (tuple<void*, void*, int, bool>*)data;
         ngx_xapian_chunk_callbackp chunkCallback = (ngx_xapian_chunk_callbackp)get<0>(*values);
         if (!get<3>(*values)) {
@@ -333,6 +473,8 @@ int ngx_xapian_search_search_index_json(const char* index, const char* language,
         chunkCallback(outputBuffer, offset, get<1>(*values));
         get<2>(*values) += offset;
     }, &values);
+    if (total < 0)
+        return total;
     chunkCallback("]}", 2, data);
     get<2>(values) += 2;
     return get<2>(values);
