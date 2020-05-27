@@ -250,7 +250,7 @@ static char* ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, void
             if (prev->directory.data == NULL) {
                 if (clcf && clcf->root.data) {
                     int length = clcf->root.len;
-                    conf->index.data = (unsigned char*)ngx_palloc(cf->pool, length+1);
+                    conf->directory.data = (unsigned char*)ngx_palloc(cf->pool, length+1);
                     memcpy(conf->directory.data, clcf->root.data, length);
                     conf->directory.data[length] = 0;
                     conf->directory.len = length;
