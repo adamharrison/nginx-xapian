@@ -132,7 +132,7 @@ include tinyxml, as well as rapidjson.
 ## Status
 
 Module is functional, but not polished. Will be expanding as needed to support personal static site. Not efficient at indexing yet; reindexes on every bootup; should probably be a bit
-more intelligent about how that's done based on timestamps.
+more intelligent about how that's done based on timestamps. Module is almost assuredly not safe, *do not use in production code*.
 
 ## TL;DR
 
