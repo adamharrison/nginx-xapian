@@ -246,7 +246,19 @@ static char* ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, void
         conf->enabled = 1;
 
 	if (conf->enabled == 1) {
-        ngx_conf_merge_str_value(conf->directory, prev->directory, clcf->root.data ? clcf->root.data : (unsigned char*)"");
+        if (conf->directory.data == NULL) {
+            if (prev->directory.data == NULL) {
+                if (clcf && clcf->root.data) {
+                    int length = clcf->root.len;
+                    conf->index.data = (unsigned char*)ngx_palloc(cf->pool, length+1);
+                    memcpy(conf->directory.data, clcf->root.data, length);
+                    conf->directory.data[length] = 0;
+                    conf->directory.len = length;
+                }
+            } else {
+                conf->directory = prev->directory;
+            }
+        }
         char index_buffer[PATH_MAX] = "";
         memcpy(index_buffer, (const char*)conf->directory.data, conf->directory.len+1);
         index_buffer[conf->directory.len+2] = 0;
