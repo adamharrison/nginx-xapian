@@ -3,3 +3,4 @@ obj
 bin
 *.layout
 *.o
+nginx

@@ -10,7 +10,7 @@ rather than by nginx directives.
 
 Starting from a standard ubuntu install, assuming nginx is already installed, one can do the following (you may have to install some additional libraries depending on your exact nginx config);
 
-    sudo apt-get -y git install mercurial nginx libxapian-dev libpcre2-dev libpcre3-dev libxslt1-dev libgeoip-dev libssl-dev
+    sudo apt-get -y install git mercurial nginx libxapian-dev libpcre2-dev libpcre3-dev libxslt1-dev libgeoip-dev libssl-dev
     git clone https://github.com/adamharrison/nginx-xapian.git
     cd nginx-xapian && make library && cd ..
     hg clone https://hg.nginx.org/nginx
