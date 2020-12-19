@@ -10,13 +10,14 @@ rather than by nginx directives.
 
 Starting from a standard ubuntu install, assuming nginx is already installed, one can do the following (you may have to install some additional libraries depending on your exact nginx config);
 
+    sudo service nginx stop
     sudo apt-get -y install git mercurial nginx libxapian-dev libpcre2-dev libpcre3-dev libxslt1-dev libgeoip-dev libssl-dev
     git clone https://github.com/adamharrison/nginx-xapian.git
     cd nginx-xapian && make library && cd ..
     hg clone https://hg.nginx.org/nginx
     cd nginx
-    auto/configure `nginx -V` --add-dynamic-module=`pwd`/../nginx-xapian && make && sudo make install && sudo cp objs/nginx `which nginx`
-    sudo service nginx restart
+    auto/configure `nginx -V` --add-dynamic-module=`pwd`/.. && make && sudo make install && sudo cp objs/nginx `which nginx`
+    sudo service nginx start
 
 This will compile nginx with the same settings as your existing nginx install, while also adding in nginx-xapian. **Note that this will overwrite your current nginx install.**
 

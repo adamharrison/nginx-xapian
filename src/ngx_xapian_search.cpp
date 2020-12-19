@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <exception>
 #include <cstdarg>
+#include <liquid/liquid.h>
 
 #include "ngx_xapian_search.h"
 
@@ -311,126 +312,59 @@ int copyToJsonField(char* dst, const char* name, const char* str, int len) {
     return target - dst;
 };
 
-struct InternalTemplate {
-    struct Node {
-        enum class Type {
-            TEXT,
-            RESULTS,
-            SEARCH,
-            SEARCH_ESCAPED
-        };
-        Type type;
-        std::string contents;
-    };
-
-    std::vector<Node> nodes;
-
-    InternalTemplate(const char* str, size_t len) {
-        if (len > 1) {
-            size_t outerOpenTag = 0;
-            size_t openTag = 0;
-            size_t outerCloseTag = 0;
-            size_t closeTag = 0;
-            for (size_t i = 1; i < len; ++i) {
-                if (!openTag) {
-                    if (str[i] == '{' && str[i-1] == '{') {
-                        outerOpenTag = i-1;
-                        for (openTag = i+1; isspace(str[openTag]); ++openTag);
-                    }
-                } else {
-                    if (str[i] == '}' && str[i-1] == '}') {
-                        if (outerOpenTag > 0)
-                            nodes.push_back(Node({ Node::Type::TEXT, std::string(&str[outerCloseTag], outerOpenTag - outerCloseTag) }));
-                        outerCloseTag = i+1;
-                        for (closeTag = i-2; isspace(str[closeTag]); --closeTag);
-                        size_t length = closeTag - openTag + 1;
-                        switch (length) {
-                            case sizeof("results")-1: {
-                                if (strncmp(&str[openTag], "results", length) == 0)
-                                    nodes.push_back(Node({ Node::Type::RESULTS }));
-                                else
-                                    throw CoreException("Unknown directive.");
-                            } break;
-                            case sizeof("search")-1: {
-                                if (strncmp(&str[openTag], "search", length) == 0)
-                                    nodes.push_back(Node({ Node::Type::SEARCH }));
-                                else
-                                    throw CoreException("Unknown directive.");
-                            } break;
-                            case sizeof("search_escaped")-1: {
-                                if (strncmp(&str[openTag], "search_escaped", length) == 0)
-                                    nodes.push_back(Node({ Node::Type::SEARCH_ESCAPED }));
-                                else
-                                    throw CoreException("Unknown directive.");
-                            } break;
-                        }
-                        openTag = 0;
-                    }
-                }
-            }
-            if (outerCloseTag < len)
-                nodes.push_back(Node({ Node::Type::TEXT, std::string(&str[outerCloseTag], len - outerCloseTag + 1) }));
-        }
+Liquid::Context& ngx_xapian_get_liquid_context() {
+    static bool init = false;
+    static Liquid::Context context;
+    if (!init) {
+        init = true;
+        Liquid::StandardDialect::implementPermissive(context);
+        Liquid::WebDialect::implement(context);
     }
-};
+    return context;
+}
 
+Liquid::Renderer& ngx_xapian_get_renderer() {
+    static Liquid::Renderer renderer(ngx_xapian_get_liquid_context(), Liquid::CPPVariableResolver());
+    return renderer;
+}
 
-int ngx_xapian_search_template(const char* index, const char* language, const char* query, int max_results, struct ngx_xapian_template_s* tmpl, ngx_xapian_chunk_callbackp chunkCallback, void* data) {
-    std::string results;
+void* ngx_xapian_parse_template(const char* buffer, int size) {
+    Liquid::Parser parser(ngx_xapian_get_liquid_context());
+    Liquid::Node* node;
+    try {
+        node = new Liquid::Node(move(parser.parse(buffer, size)));
+    } catch (const Liquid::Parser::Exception& e) {
+        ngx_xapian_set_error(e.what());
+    }
+    return node;
+}
+
+void ngx_xapian_free_template(void* tmpl) {
+    delete (Liquid::Node*)tmpl;
+}
+
+int ngx_xapian_search_template(const char* index, const char* language, const char* query, int max_results, void* tmpl, ngx_xapian_chunk_callbackp chunkCallback, void* data) {
+    Liquid::CPPVariable hash, search, results;
     int resultCount = ngx_xapian_search_index(index, language, query, max_results, +[](ngx_xapian_result_t result, void* data){
-        std::string* results = (std::string*)data;
+        Liquid::CPPVariable* results = (Liquid::CPPVariable*)data;
+        std::unique_ptr<Liquid::CPPVariable> cppResult = std::make_unique<Liquid::CPPVariable>();
         size_t titleLength;
         const char* title = ngx_xapian_result_get_title(&result, &titleLength);
         size_t descriptionLength;
         const char* description = ngx_xapian_result_get_description(&result, &descriptionLength);
         size_t urlLength;
         const char* url = ngx_xapian_result_get_url(&result, &urlLength);
-        results->append("<li><a href='");
-        results->append(url, urlLength);
-        results->append("'>");
-        results->append("<div class='title'>");
-        results->append(title, titleLength);
-        results->append("</div>");
-        results->append("<div class='description'>");
-        results->append(description, descriptionLength);
-        results->append("</div></a></li>");
+        (*cppResult.get())["url"] = string(url, urlLength);
+        (*cppResult.get())["title"] = string(title, titleLength);
+        (*cppResult.get())["description"] = string(description, descriptionLength);
+        results->pushBack(move(cppResult));
     }, &results);
-    InternalTemplate& itmpl = *((InternalTemplate*)tmpl->internal);
-    for (auto it = itmpl.nodes.begin(); it != itmpl.nodes.end(); ++it) {
-        switch (it->type) {
-            case InternalTemplate::Node::Type::RESULTS: {
-                chunkCallback(results.data(), results.size(), data);
-            } break;
-            case InternalTemplate::Node::Type::SEARCH: {
-                chunkCallback(query, strlen(query), data);
-            } break;
-            case InternalTemplate::Node::Type::SEARCH_ESCAPED: {
-                char buffer[1024];
-                int current = 0;
-                size_t len = strlen(query);
-                for (size_t i = 0; i < len; ++i) {
-                    if (query[i] == '\'')
-                        buffer[current++] = '\\';
-                    buffer[current++] = query[i];
-                }
-                chunkCallback(buffer, current, data);
-            } break;
-            case InternalTemplate::Node::Type::TEXT: {
-                chunkCallback(it->contents.data(), it->contents.size(), data);
-            } break;
-        }
-    }
+    search["results"] = move(results);
+    hash["search"] = move(search);
+    Liquid::Renderer& renderer = ngx_xapian_get_renderer();
+    std::string result = renderer.render(*(Liquid::Node*)tmpl, hash);
+    chunkCallback(result.data(), result.size(), data);
     return resultCount;
-}
-
-ngx_xapian_template_t* ngx_xapian_parse_template(const char* contents, size_t length) {
-    return new ngx_xapian_template_t({ new InternalTemplate(contents, length) });
-}
-
-
-void ngx_xapian_free_template(ngx_xapian_template_t* tmpl) {
-    delete (InternalTemplate*)tmpl->internal;
-    delete tmpl;
 }
 
 // Should be free'd with 'free' after use.

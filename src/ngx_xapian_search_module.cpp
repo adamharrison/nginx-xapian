@@ -97,6 +97,65 @@ static void ngx_xapian_chunk_handler(const char* chunk, unsigned int chunk_size,
     handler_data->offset += chunk_size;
 }
 
+
+static ngx_table_elt_t* search_hashed_headers_in(ngx_http_request_t *r, u_char *name, size_t len) {
+    ngx_http_core_main_conf_t  *cmcf;
+    ngx_http_header_t          *hh;
+    u_char                     *lowcase_key;
+    ngx_uint_t                  i, hash;
+
+    /*
+    Header names are case-insensitive, so have been hashed by lowercases key
+    */
+    lowcase_key = (u_char*)ngx_palloc(r->pool, len);
+    if (lowcase_key == NULL) {
+        return NULL;
+    }
+
+    /*
+    Calculate a hash of lowercased header name
+    */
+    hash = 0;
+    for (i = 0; i < len; i++) {
+        lowcase_key[i] = ngx_tolower(name[i]);
+        hash = ngx_hash(hash, lowcase_key[i]);
+    }
+
+    /*
+    The layout of hashed headers is stored in ngx_http_core_module main config.
+    All the hashes, its offsets and handlers are pre-calculated
+    at the configuration time in ngx_http_init_headers_in_hash() at ngx_http.c:432
+    with data from ngx_http_headers_in at ngx_http_request.c:80.
+    */
+    cmcf = (ngx_http_core_main_conf_t*)ngx_http_get_module_main_conf(r, ngx_http_core_module);
+
+    /*
+    Find the current header description (ngx_http_header_t) by its hash
+    */
+    hh = (ngx_http_header_t*)ngx_hash_find(&cmcf->headers_in_hash, hash, lowcase_key, len);
+
+    if (hh == NULL) {
+        /*
+        There header is unknown or is not hashed yet.
+        */
+        return NULL;
+    }
+
+    if (hh->offset == 0) {
+        /*
+        There header is hashed but not cached yet for some reason.
+        */
+        return NULL;
+    }
+
+    /*
+    The header value was already cached in some field
+    of the r->headers_in struct (hh->offset tells in which one).
+    */
+
+    return *((ngx_table_elt_t **) ((char *) &r->headers_in + hh->offset));
+}
+
 static ngx_int_t ngx_xapian_search_handler(ngx_http_request_t *r) {
     u_char          *p, *ampersand, *equal, *last;
     ngx_int_t       rc;
@@ -138,7 +197,9 @@ static ngx_int_t ngx_xapian_search_handler(ngx_http_request_t *r) {
 
     const char* index_path = path;
     r->headers_out.status = NGX_HTTP_OK;
-    if (r->headers_in.accept && ngx_strstr(r->headers_in.accept->value.data, "json")) {
+
+    ngx_table_elt_t* accept = search_hashed_headers_in(r, (unsigned char*)"accept", 6);
+    if (accept && ngx_strstr(accept->value.data, "json")) {
         /* set all headers ahead of time. */
         r->headers_out.content_type.len = sizeof("application/json; charset=UTF-8") - 1;
         r->headers_out.content_type.data = (u_char*)"application/json; charset=UTF-8";

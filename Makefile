@@ -6,9 +6,9 @@ LDIR=logs
 CXX=g++
 CC=gcc
 # CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -fPIC -O3 -s
-CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -fPIC -g
+CFLAGS=-Wall -fexceptions -Inginx/src -Inginx/obj -fPIC -g -DLIQUID_INCLUDE_WEB_DIALECT -DLIQUID_INCLUDE_RAPIDJSON_VARIABLE
 CXXFLAGS=$(CFLAGS) -std=c++17
-LDFLAGS := $(LDFLAGS) -lxapian
+LDFLAGS := $(LDFLAGS) -lxapian -lliquid -lsass -lcrypto
 AR=ar
 SOURCES=$(wildcard $(SDIR)/*.cpp) $(wildcard $(SDIR)/*.c) $(wildcard $(TDIR)/*.cpp)
 LIBRARYSOURCES=$(SDIR)/ngx_xapian_search.cpp
@@ -55,6 +55,6 @@ $(BDIR):
 	mkdir -p $(BDIR)
 
 clean: directories
-	rm -f $(ODIR)/*.o $(LIBRARY) $(TEST)
+	rm -f $(ODIR)/*.o $(TDIR)/*.o $(LIBRARY) $(TEST)
 
 cleantest: clean

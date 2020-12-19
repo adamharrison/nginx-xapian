@@ -1,0 +1,3 @@
+[submodule "liquid-cpp"]
+	path = liquid-cpp
+	url = git@github.com:adamharrison/liquid-cpp.git
