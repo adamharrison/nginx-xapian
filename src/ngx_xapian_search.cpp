@@ -511,7 +511,7 @@ Liquid::Renderer& ngx_xapian_get_renderer() {
 
 void* ngx_xapian_parse_template(const char* buffer, int size) {
     Liquid::Parser parser(ngx_xapian_get_liquid_context());
-    Liquid::Node* node;
+    Liquid::Node* node = nullptr;
     try {
         node = new Liquid::Node(move(parser.parse(buffer, size)));
     } catch (const Liquid::Parser::Exception& e) {
