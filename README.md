@@ -104,7 +104,22 @@ Takes exactly one argument; the path to an HTML/liquid file.
 
 If no template is specified, the only way that the endpoint can be accessed is with an `Accept: application/json` header.
 
-Elements are added exactly as specified below.
+Elements are added exactly as specified below. An example of what a template could look like is:
+
+```liquid
+<ul class='search-results'>
+	{% for result in search.results %}
+		<li>
+			<a href='{{ result.url }}'>
+				<div class='title'>{{ result.title | escape }}</div>
+				<div class='description'>{{ result.description | escape }}</div>
+			</a>
+		</li>
+	{% else %}
+		No results found.
+	{% endfor %}
+</ul>
+```
 
 #### search
 
@@ -132,8 +147,9 @@ The URL to the search result.
 
 ## Dependencies
 
-Currently nginx-xapian has no depdenncies beyond nginx, and xapian. This may change depending on whether my hack-y JSON output, and faux-XML parsing are adeauate to the task. If not, this project will also further
-include tinyxml, as well as rapidjson.
+* [nginx](https://www.nginx.com/)
+* [libxapian](https://xapian.org/)
+* [liquid-cpp](https://github.com/adamharrison/liquid-cpp)
 
 ## Status
 
@@ -142,8 +158,7 @@ more intelligent about how that's done based on timestamps. Module is almost ass
 
 ## TL;DR
 
-Good SEO practices will also net you a better nginx-xapian experience! Just follow those, and you'll be fine. Not ready for production (or even debug, yet). Could potentially include one of the well-supported C++ templating
-enignes to provide an actual HTML page rather than JSON, but am unsure if I want to eventually do that. May simply take a CSS selector, a reference page, and render a `<ul>` into the page. Will see.
+Good SEO practices will also net you a better nginx-xapian experience! Just follow those, and you'll be fine. Not ready for production, yet.
 
 ## License
 
