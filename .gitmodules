@@ -1,3 +1,3 @@
 [submodule "liquid-cpp"]
 	path = liquid-cpp
-	url = https://github.com/adamharrison/nginx-xapian.git
+	url = https://github.com/adamharrison/liquid-cpp.git
