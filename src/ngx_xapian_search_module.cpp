@@ -376,7 +376,7 @@ static char* ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, void
             }
             conf->tmpl_contents = ngx_xapian_parse_template(buffer, buffer_length);
             if (!conf->tmpl_contents) {
-                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Error reading xapian template: %s", ngx_xapian_get_error());
+                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Error reading xapian template %s: %s", template_buffer, ngx_xapian_get_error());
                 return (char*)NGX_CONF_ERROR;
             }
             ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Succesfully parsed xapian search template %s.", template_buffer);
