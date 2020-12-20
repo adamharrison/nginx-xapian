@@ -12,12 +12,8 @@ Starting from a standard ubuntu install, assuming nginx is already installed, on
 
     sudo service nginx stop
     sudo apt-get -y install git mercurial nginx libxapian-dev libpcre2-dev libpcre3-dev libxslt1-dev libgeoip-dev libssl-dev libsass-dev g++ build-essential
-    git clone https://github.com/adamharrison/nginx-xapian.git
-    git submodule init && git submodule update
-    cd nginx-xapian && make library && cd ..
-    hg clone https://hg.nginx.org/nginx
-    cd nginx
-    auto/configure `nginx -V` --add-dynamic-module=`pwd`/.. && make && sudo make install && sudo cp objs/nginx `which nginx`
+    git clone https://github.com/adamharrison/nginx-xapian.git && cd nginx-xapian && git submodule init && git submodule update && make library
+    hg clone https://hg.nginx.org/nginx && cd nginx && auto/configure `nginx -V` --add-dynamic-module=`pwd`/.. && make && sudo make install && sudo cp objs/nginx `which nginx` && cd ../../
     sudo service nginx start
 
 This will compile nginx with the same settings as your existing nginx install, while also adding in nginx-xapian. **Note that this will overwrite your current nginx install.**

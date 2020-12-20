@@ -12,7 +12,7 @@ typedef struct {
     ngx_str_t directory;
     ngx_str_t index;
     ngx_str_t tmpl;
-    ngx_xapian_template_t* tmpl_contents;
+    void* tmpl_contents;
 } ngx_xapian_search_conf_t;
 
 
