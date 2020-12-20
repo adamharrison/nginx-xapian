@@ -11,8 +11,9 @@ rather than by nginx directives.
 Starting from a standard ubuntu install, assuming nginx is already installed, one can do the following (you may have to install some additional libraries depending on your exact nginx config);
 
     sudo service nginx stop
-    sudo apt-get -y install git mercurial nginx libxapian-dev libpcre2-dev libpcre3-dev libxslt1-dev libgeoip-dev libssl-dev
+    sudo apt-get -y install git mercurial nginx libxapian-dev libpcre2-dev libpcre3-dev libxslt1-dev libgeoip-dev libssl-dev libsass-dev g++ build-essential
     git clone https://github.com/adamharrison/nginx-xapian.git
+    git submodule init && git submodule update
     cd nginx-xapian && make library && cd ..
     hg clone https://hg.nginx.org/nginx
     cd nginx
@@ -59,6 +60,8 @@ Used to determine whether or not a file should be indexed. Supply `nointernalind
 
 Will result in the file not being indexed, even if it's in the correct folder.
 
+In addition, if you want to exclude a particular HTML node from being indexed, you can also specify `nointernalindex` as an class of that node.
+
 ### `<meta name="langauge">`
 
 As with search engines, specifying the language will affect how stemming works and such. You can also filter which language you're searching for by specfying `language` as a query parameter to the xapian endpoint.
@@ -99,31 +102,35 @@ Takes exactly one argument; the path to store the index in. By default, this wil
 
 ### `xapian_template`
 
-Takes exactly one argument; the path to an HTML file. The following tags are supported as part of a super-simple templating engine. In future, this may
-link against a true template library, but for now, in order to not introduce any dependencies, note that these tags are *simple literals*.
+Takes exactly one argument; the path to an HTML/liquid file.
 
 If no template is specified, the only way that the endpoint can be accessed is with an `Accept: application/json` header.
 
 Elements are added exactly as specified below.
 
-#### {{ results }}
+#### search
 
-The search results.
+The object that represents a completed search. If it's nil, no search has been performed.
 
-    <ul class='search-results'>
-        <li><a href='{{ reuslt[0].url | escape }}'>
-            <div class='title'>{{ result[0].title | escape_html }}</div>
-            <div class='description'>{{ result[0].description | escape_html }}</div>
-        </a></li>
-    </ul>
+#### search.terms
 
-#### {{ search }}
+The string that was searched.
 
-The search terms used.
+#### search.results
 
-#### {{ search_escaped }}
+The array of results. Each result has the following variables:
 
-The search terms used, but escaped. Suitable for sticking into an input box value.
+##### search.results.first.title
+
+The title of a search result.
+
+##### search.results.first.description
+
+The descrpition of the result.
+
+##### search.results.first.url
+
+The URL to the search result.
 
 ## Dependencies
 

@@ -156,6 +156,183 @@ struct CoreException : public exception {
 };
 
 
+// Allow for the "nointernalindex" class to be parsed out, as well as stripping all HTML tags.
+// This should potentially use an HTML parsing library. For now, just do a hack job for a 'good-enough' use.
+struct HTMLParser {
+    enum class EStringParsingState {
+        OPEN,
+        SINGLE,
+        DOUBLE
+    };
+    enum class ETagParsingState {
+        OPEN,
+        TAG,
+        SCRIPT
+    };
+
+    const char* buffer;
+    size_t offset;
+    size_t lastCopied;
+    EStringParsingState strState;
+    ETagParsingState tagState;
+    int noIndexDepth;
+
+    string result;
+    int tagStart;
+
+    void copyUpTo(int place = -1) {
+        if (place == -1)
+            place = offset;
+        result.append(buffer, lastCopied, place - lastCopied);
+        result.push_back(' ');
+        lastCopied = offset;
+    }
+
+    void attr(const char* attrName, int attrNameLength, const char* attrValue, int attrValueLength) {
+        if (noIndexDepth == -1 && attrNameLength == 5 && strncmp(attrName, "class", 5) == 0) {
+            static constexpr int strLength = sizeof("nointernalindex")-1;
+            for (int i = 0; i < attrValueLength - strLength + 1; ++i) {
+                if (strncmp(&attrValue[i], "nointernalindex", strLength) == 0 &&
+                    ((i == attrValueLength - strLength) || isblank(attrValue[i+strLength+1])) &&
+                    (i == 0 || isblank(attrValue[i-1]))
+                ) {
+                    noIndexDepth = 0;
+                    break;
+                }
+            }
+        }
+    }
+
+    void startOpenTag(const char* tag, int tagLength, int start) {
+        if (noIndexDepth == -1)
+            copyUpTo(start);
+        else
+            ++noIndexDepth;
+    }
+
+    void finishOpenTag() {
+        lastCopied = offset+1;
+    }
+
+    void startCloseTag(const char* tag, int tagLength, int start) {
+        if (noIndexDepth == -1)
+            copyUpTo(start);
+    }
+
+    void finishCloseTag() {
+        lastCopied = offset+1;
+        if (noIndexDepth >= 0)
+            --noIndexDepth;
+    }
+
+    string parse(const char* buffer, size_t size) {
+        int tagStart;
+        this->buffer = buffer;
+        result.reserve(size);
+        strState = EStringParsingState::OPEN;
+        tagState = ETagParsingState::OPEN;
+        lastCopied = 0;
+        noIndexDepth = -1;
+        int attrNameStart;
+        int attrNameEnd;
+        int attrValueStart;
+        int tagNameStart;
+        bool openTag;
+        for (offset = 0; offset < size; ++offset) {
+            char ch = buffer[offset];
+            switch (strState) {
+                case EStringParsingState::OPEN:
+                    switch (tagState) {
+                        case ETagParsingState::OPEN:
+                            if (ch == '<') {
+                                tagStart = offset;
+                                attrNameStart = -1;
+                                attrValueStart = -1;
+                                tagNameStart = -1;
+                                tagState = ETagParsingState::TAG;
+                                openTag = true;
+                            }
+                        break;
+                        case ETagParsingState::SCRIPT:
+                            if (offset < size - 9 && strncmp(&buffer[offset], "</script>", 9) == 0) {
+                                startCloseTag(&buffer[offset+2], 6, offset);
+                                tagState = ETagParsingState::OPEN;
+                                finishCloseTag();
+                            }
+                        break;
+                        case ETagParsingState::TAG:
+                            switch (ch) {
+                                case '=':
+                                    if (attrNameStart != -1) {
+                                        attrNameEnd = offset;
+                                        attrValueStart = offset+1;
+                                    }
+                                break;
+                                case '\'':
+                                    strState = EStringParsingState::SINGLE;
+                                break;
+                                case '"':
+                                    strState = EStringParsingState::DOUBLE;
+                                break;
+                                case '>':
+                                case '\t':
+                                case '\n':
+                                case ' ':
+                                    if (attrNameStart == -1) {
+                                        if (tagNameStart != -1) {
+                                            if (buffer[tagStart+1] != '/')
+                                                startOpenTag(&buffer[tagNameStart], offset - tagNameStart, tagStart);
+                                            else
+                                                startCloseTag(&buffer[tagNameStart], offset - tagNameStart, tagStart);
+                                            openTag = false;
+                                        }
+                                    } else {
+                                        int attrValueEnd;
+                                        for (; buffer[attrValueStart] == '"' || buffer[attrValueStart] == '\''; ++attrValueStart);
+                                        for (attrValueEnd = offset-1; buffer[attrValueEnd] == '"' || buffer[attrValueEnd] == '\''; --attrValueEnd);
+                                        attr(&buffer[attrNameStart], attrNameEnd - attrNameStart, &buffer[attrValueStart], attrValueEnd - attrValueStart + 1);
+                                    }
+                                    if (ch == '>') {
+                                        if (buffer[tagStart+1] == '/') {
+                                            finishCloseTag();
+                                            tagState = ETagParsingState::OPEN;
+                                        } else {
+                                            finishOpenTag();
+                                            if (strncmp(&buffer[tagNameStart], "script", 6) == 0) {
+                                                tagState = ETagParsingState::SCRIPT;
+                                            } else {
+                                                tagState = ETagParsingState::OPEN;
+                                            }
+                                        }
+                                    }
+                                break;
+                                default:
+                                    if (tagNameStart == -1) {
+                                        tagNameStart = offset;
+                                    } else if (!openTag && attrNameStart == -1) {
+                                        attrNameStart = offset;
+                                    }
+                                break;
+                            }
+                        break;
+                    }
+                break;
+                case EStringParsingState::SINGLE:
+                    if (buffer[offset-1] != '\\' && ch == '\'') {
+                        strState = EStringParsingState::OPEN;
+                    }
+                break;
+                case EStringParsingState::DOUBLE:
+                    if (buffer[offset-1] != '\\' && ch == '"')
+                        strState = EStringParsingState::OPEN;
+                break;
+            }
+        }
+        copyUpTo();
+        return move(result);
+    }
+};
+
 bool xapian_index_file(WritableDatabase& database, TermGenerator& termGenerator, const string& path) {
     Document document;
     termGenerator.set_document(document);
@@ -202,7 +379,11 @@ bool xapian_index_file(WritableDatabase& database, TermGenerator& termGenerator,
     termGenerator.increase_termpos();
     termGenerator.index_text(result.description.data(), 3);
     termGenerator.increase_termpos();
-    termGenerator.index_text(buffer.data());
+
+    HTMLParser parser;
+    string text = parser.parse(buffer.data(), buffer.size());
+
+    termGenerator.index_text(text.c_str());
     termGenerator.increase_termpos();
 
     document.set_data(result.pack());
@@ -241,7 +422,7 @@ void xapian_traverse_index_directories(WritableDatabase& database, TermGenerator
 
 int ngx_xapian_build_index(const char* directory, const char* language, const char* target) {
     try {
-        WritableDatabase database(target, DB_CREATE_OR_OPEN);
+        WritableDatabase database(target, DB_CREATE_OR_OVERWRITE);
         TermGenerator termGenerator;
         termGenerator.set_stemmer(Stem(language));
         xapian_traverse_index_directories(database, termGenerator, directory);
@@ -361,6 +542,7 @@ int ngx_xapian_search_template(const char* index, const char* language, const ch
     }, &results);
     search["results"] = move(results);
     hash["search"] = move(search);
+    hash["terms"] = string(query);
     Liquid::Renderer& renderer = ngx_xapian_get_renderer();
     std::string result = renderer.render(*(Liquid::Node*)tmpl, hash);
     chunkCallback(result.data(), result.size(), data);
