@@ -3,7 +3,7 @@
 ngx_module_type=CORE
 ngx_module_name=ngx_xapian_search_module
 ngx_module_srcs="$ngx_addon_dir/src/ngx_xapian_search_module.cpp"
-ngx_module_libs="-L$ngx_addon_dir/bin -lnginx_xapian -lxapian -lz -lm  -lstdc++ -fPIC"
+ngx_module_libs="-L$ngx_addon_dir/bin -lnginx_xapian -lxapian -lz -lm  -lstdc++ -fPIC -lliquid -lsass -lcrypto"
 
 . auto/module
 

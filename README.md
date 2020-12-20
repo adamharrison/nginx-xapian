@@ -15,7 +15,7 @@ Starting from a standard ubuntu install, assuming nginx is already installed, on
     git clone https://github.com/adamharrison/nginx-xapian.git && cd nginx-xapian && git submodule update --init &&
     cd liquid-cpp && rm -rf build && mkdir build && cd build && cmake .. && make && sudo make install && cd ../.. &&
     make library &&
-    hg clone https://hg.nginx.org/nginx && cd nginx && echo `nginx -V 2>&1 | grep "configure" | sed "s/^configure arguments: /auto\/configure /"` --add-dynamic-module=`pwd`/.. | sh && make && sudo make install && sudo cp objs/nginx `which nginx` && cd ../../ &&
+    hg clone https://hg.nginx.org/nginx && cd nginx && echo `nginx -V 2>&1 | grep "configure" | sed "s/^configure arguments: /auto\/configure /" | sed -E "s/\-\-add-dynamic-module\S+nginx-xapian\S+//g"` --add-dynamic-module=`pwd`/.. | sh && make && sudo make install && sudo cp objs/nginx `which nginx` && cd ../../ &&
     sudo service nginx start
 
 This will compile nginx with the same settings as your existing nginx install, while also adding in nginx-xapian. **Note that this will overwrite your current nginx install.**
