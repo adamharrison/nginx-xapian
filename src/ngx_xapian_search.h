@@ -27,7 +27,7 @@ extern "C" {
     const char* ngx_xapian_get_error();
     void ngx_xapian_clear_error();
 
-    int ngx_xapian_build_index(const char* directory, const char* language, const char* target);
+    int ngx_xapian_build_index(const char* directory, const char* language, const char* target, const char* reg);
     int ngx_xapian_search_index(const char* index, const char* language, const char* query, int max_results, ngx_xapian_result_callbackp resultCallback, void* data);
     int ngx_xapian_search_index_json(const char* index, const char* language, const char* query, int max_results, ngx_xapian_chunk_callbackp chunkCallback, void* data);
 

@@ -392,7 +392,7 @@ bool xapian_index_file(WritableDatabase& database, TermGenerator& termGenerator,
     return true;
 }
 
-void xapian_traverse_index_directories(WritableDatabase& database, TermGenerator& termGenerator, const char* directory) {
+void xapian_traverse_index_directories(WritableDatabase& database, TermGenerator& termGenerator, const char* directory, regex* reg) {
     DIR *dir = opendir(directory);
     if (!dir)
         return;
@@ -405,7 +405,7 @@ void xapian_traverse_index_directories(WritableDatabase& database, TermGenerator
                     strcpy(path, directory);
                     strcat(path, "/");
                     strcat(path, dp->d_name);
-                    xapian_traverse_index_directories(database, termGenerator, path);
+                    xapian_traverse_index_directories(database, termGenerator, path, reg);
                 }
             } break;
             case DT_REG:
@@ -413,19 +413,25 @@ void xapian_traverse_index_directories(WritableDatabase& database, TermGenerator
                     strcpy(path, directory);
                     strcat(path, "/");
                     strcat(path, dp->d_name);
-                    xapian_index_file(database, termGenerator, path);
+                    if (!reg || regex_search(path, *reg))
+                        xapian_index_file(database, termGenerator, path);
                 }
             break;
         }
     }
 }
 
-int ngx_xapian_build_index(const char* directory, const char* language, const char* target) {
+int ngx_xapian_build_index(const char* directory, const char* language, const char* target, const char* reg) {
     try {
         WritableDatabase database(target, DB_CREATE_OR_OVERWRITE);
         TermGenerator termGenerator;
         termGenerator.set_stemmer(Stem(language));
-        xapian_traverse_index_directories(database, termGenerator, directory);
+        if (reg) {
+            auto compiledRegex = regex(reg);
+            xapian_traverse_index_directories(database, termGenerator, directory, &compiledRegex);
+        } else {
+            xapian_traverse_index_directories(database, termGenerator, directory, nullptr);
+        }
     } catch (Xapian::Error& e) {
         ngx_xapian_set_error(e.get_msg().data());
         return -1;

@@ -13,7 +13,8 @@ Starting from a standard ubuntu install, assuming nginx is already installed, on
     sudo apt-get -y install git mercurial nginx libxapian-dev libpcre2-dev libpcre3-dev libxslt1-dev libgeoip-dev libssl-dev libsass-dev g++ build-essential cmake &&
     git clone https://github.com/adamharrison/nginx-xapian.git && cd nginx-xapian && git submodule update --init &&
     cd liquid-cpp && rm -rf build && mkdir build && cd build && cmake .. && make && sudo make install && cd ../.. && make library &&
-    hg clone https://hg.nginx.org/nginx && cd nginx && echo `nginx -V 2>&1 | grep "configure" | sed "s/^configure arguments: /auto\/configure /" | sed -E "s/\-\-add-dynamic-module\S+nginx-xapian\S+//g"` --add-dynamic-module=`pwd`/.. | sh && make &&
+    hg clone https://hg.nginx.org/nginx &&
+    cd nginx && echo `nginx -V 2>&1 | grep "configure" | sed "s/^configure arguments: /auto\/configure /" | sed -E "s/\-\-add-dynamic-module\S+nginx-xapian\S+//g"` --add-dynamic-module=`pwd`/.. | sh && make &&
     sudo service nginx stop &&
     sudo make install && sudo cp objs/nginx `which nginx` && cd ../../ &&
     sudo service nginx start
@@ -92,7 +93,7 @@ Takes a single argument, `on`. Allows this endpoint to return saerch results.
 
 ### `xapian_directory`
 
-Takes at most argument; the directory to search. If specified, will build an index for the designated lcoation. If unspecified, will search the `root` folder.
+Takes between arguments. The first is the the directory to search. If specified, will build an index for the designated location.
 
 ### `xapian_index`
 

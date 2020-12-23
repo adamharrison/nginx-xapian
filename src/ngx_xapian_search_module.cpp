@@ -9,7 +9,7 @@ extern "C" {
 
 typedef struct {
     ngx_flag_t enabled;
-    ngx_str_t directory;
+    ngx_array_t* directory;
     ngx_str_t index;
     ngx_str_t tmpl;
     void* tmpl_contents;
@@ -20,6 +20,22 @@ static char * ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, voi
 static void * ngx_xapian_search_create_loc_conf(ngx_conf_t *cf);
 static ngx_int_t ngx_xapian_search_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_xapian_search_init(ngx_conf_t *cf);
+
+static char* ngx_conf_set_str_array(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    char  *p = (char*)conf;
+
+    ngx_array_t** field = (ngx_array_t**) (p + cmd->offset);
+
+    *field = ngx_array_create(cf->pool, 4, sizeof(ngx_str_t));
+
+    ngx_array_push_n(*field, cf->args->nelts - 1);
+
+    for (size_t i = 1; i < cf->args->nelts; ++i)
+        ((ngx_str_t*)(*field)->elts)[i-1] = ((ngx_str_t*)cf->args->elts)[i];
+
+    return NGX_CONF_OK;
+}
 
 
 static ngx_command_t  ngx_xapian_search_commands[] = {
@@ -32,8 +48,8 @@ static ngx_command_t  ngx_xapian_search_commands[] = {
         NULL
     }, {
         ngx_string("xapian_directory"),
-        NGX_CONF_TAKE1|NGX_HTTP_LOC_CONF,
-        ngx_conf_set_str_slot,
+        NGX_CONF_TAKE12	|NGX_HTTP_LOC_CONF,
+        ngx_conf_set_str_array,
         NGX_HTTP_LOC_CONF_OFFSET,
         offsetof(ngx_xapian_search_conf_t, directory),
         NULL
@@ -287,8 +303,7 @@ static void* ngx_xapian_search_create_loc_conf(ngx_conf_t *cf) {
 		return NGX_CONF_ERROR;
     conf->enabled = NGX_CONF_UNSET;
     conf->tmpl_contents = NULL;
-	conf->directory.len = 0;
-	conf->directory.data = NULL;
+    conf->directory = NULL;
 	conf->index.len = 0;
 	conf->index.data = NULL;
 	conf->tmpl.len = 0;
@@ -307,22 +322,28 @@ static char* ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, void
         conf->enabled = 1;
 
 	if (conf->enabled == 1) {
-        if (conf->directory.data == NULL) {
-            if (prev->directory.data == NULL) {
+        if (conf->directory == NULL) {
+            if (prev->directory == NULL) {
                 if (clcf && clcf->root.data) {
                     int length = clcf->root.len;
-                    conf->directory.data = (unsigned char*)ngx_palloc(cf->pool, length+1);
-                    memcpy(conf->directory.data, clcf->root.data, length);
-                    conf->directory.data[length] = 0;
-                    conf->directory.len = length;
+                    conf->directory = ngx_array_create(cf->pool, 1, sizeof(ngx_str_t));
+                    ngx_str_t* element = (ngx_str_t*)ngx_array_push(conf->directory);
+                    element->data = (unsigned char*)ngx_palloc(cf->pool, length+1);
+                    memcpy(element->data, clcf->root.data, length);
+                    element->data[length] = 0;
+                    element->len = length;
                 }
             } else {
                 conf->directory = prev->directory;
             }
         }
+        if (!conf->directory || conf->directory->nelts == 0 || ((ngx_str_t*)conf->directory->elts)[0].data == NULL || ((ngx_str_t*)conf->directory->elts)[0].len == 0) {
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Requires a xapian_search directory to be specified, or a root directive.");
+            return (char*)NGX_CONF_ERROR;
+        }
         char index_buffer[PATH_MAX] = "";
-        memcpy(index_buffer, (const char*)conf->directory.data, conf->directory.len+1);
-        index_buffer[conf->directory.len+2] = 0;
+        memcpy(index_buffer, (const char*)((ngx_str_t*)conf->directory->elts)[0].data, ((ngx_str_t*)conf->directory->elts)[0].len+1);
+        index_buffer[((ngx_str_t*)conf->directory->elts)[0].len+2] = 0;
         strcat(index_buffer, "/xapian_index");
         if (conf->index.data == NULL)  {
             if (prev->index.data != NULL) {
@@ -337,10 +358,6 @@ static char* ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, void
         }
         ngx_conf_merge_str_value(conf->tmpl, prev->tmpl, "");
 
-        if (!conf->directory.data || conf->directory.len == 0) {
-            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Requires a xapian_search directory to be specified, or a root directive.");
-            return (char*)NGX_CONF_ERROR;
-        }
         if (!conf->index.data || conf->index.len == 0) {
             ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Requires a xapian_index directory to be specified.");
             return (char*)NGX_CONF_ERROR;
@@ -383,11 +400,11 @@ static char* ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, void
         }
 
 
-        ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Building a xapian search index for %s at %s.", conf->directory.data, index_buffer);
-        if (ngx_xapian_build_index((const char*)conf->directory.data, "en", (const char*)index_buffer) == 0)
-            ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Succesfully built xapian search index for %s at %s.", conf->directory.data, index_buffer);
+        ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Building a xapian search index for %s at %s.", ((ngx_str_t*)conf->directory->elts)[0].data, index_buffer);
+        if (ngx_xapian_build_index((const char*)((ngx_str_t*)conf->directory->elts)[0].data, "en", (const char*)index_buffer, (const char*)(conf->directory->nelts == 2 ? ((ngx_str_t*)conf->directory->elts)[1].data : NULL)) == 0)
+            ngx_conf_log_error(NGX_LOG_INFO, cf, 0, "Succesfully built xapian search index for %s at %s.", ((ngx_str_t*)conf->directory->elts)[0].data, index_buffer);
         else
-            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Failed to build xapian search index for %s at %s: %s.", conf->directory.data, index_buffer, ngx_xapian_get_error());
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Failed to build xapian search index for %s at %s: %s.", ((ngx_str_t*)conf->directory->elts)[0].data, index_buffer, ngx_xapian_get_error());
     }
 	return NGX_CONF_OK;
 }

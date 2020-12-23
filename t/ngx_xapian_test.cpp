@@ -5,7 +5,7 @@
 using namespace std;
 
 TEST(sanity, build) {
-    ngx_xapian_build_index("t/test_corpus", "en", "/tmp/test_index");
+    ngx_xapian_build_index("t/test_corpus", "en", "/tmp/test_index", nullptr);
     ASSERT_STREQ(ngx_xapian_get_error(), nullptr);
 }
 
