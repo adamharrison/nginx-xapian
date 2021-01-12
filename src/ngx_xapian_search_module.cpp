@@ -388,9 +388,11 @@ static char* ngx_xapian_search_merge_loc_conf(ngx_conf_t *cf, void *parent, void
             fseek(file, 0, SEEK_SET);
             char* buffer = (char*)ngx_palloc(cf->pool, buffer_length+1);
             if (fread(buffer, 1, buffer_length, file) != buffer_length) {
+                fclose(file);
                 ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Error reading xapian template: %s", template_buffer);
                 return (char*)NGX_CONF_ERROR;
             }
+            fclose(file);
             conf->tmpl_contents = ngx_xapian_parse_template(buffer, buffer_length);
             if (!conf->tmpl_contents) {
                 ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Error reading xapian template %s: %s", template_buffer, ngx_xapian_get_error());
